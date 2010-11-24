@@ -116,9 +116,7 @@ _xcLoadImage = (imageName) ->
 	#finding /imageName$ will give the correct image
 	endsWith = new RegExp('/' + imageName + '$')
 
-	#go through all the images in document.images
 	for image in document.images
-		#and if it matches the regexp
 		if image.src.match(endsWith)
 			image.webglTexture = context.createTexture()
 			context.bindTexture(context.TEXTURE_2D, image.webglTexture)
@@ -130,16 +128,12 @@ _xcLoadImage = (imageName) ->
 
 			image.webglCoordBuffer = context.createBuffer()
 			context.bindBuffer(context.ARRAY_BUFFER, image.webglCoordBuffer)
-			context.bufferData(context.ARRAY_BUFFER, new Float32Array([1, 0, 0, 0, 1, 1, 0, 1]), context.STATIC_DRAW)
+			context.bufferData(context.ARRAY_BUFFER, new Float32Array([0, 1, 1, 1, 0, 0, 1, 0]), context.STATIC_DRAW)
 
 			return image
 
-	#if the image isn't found, return null.
-	#TODO: raise an exception if this happens, instead.
-	return sprite
+	return null
 
-#getting the height or width of a sprite.
-#simply return image.width,image.height
 _xcImageWidth = (node) ->
 	node.sprite.width
 
@@ -156,9 +150,6 @@ _xcLoadText = (node) -> null
 # coords, rotation, and opacity, and then draw it based
 # on the scale and anchor positions.  node is an XCSpriteNode
 _xcSpriteDraw = (node) ->
-	#move the context to the node's coordinates
-	#context.translate(node.X(), node.Y())
-
 	#rotate the context to the node's rotation
 	#since rotation is stored in degrees and the
 	# context wants radians, convert.
@@ -192,11 +183,15 @@ _xcSpriteDraw = (node) ->
 	node.webglVertexBuffer = context.createBuffer() if !node.webglVertexBuffer?
 
 	context.bindBuffer(context.ARRAY_BUFFER, node.webglVertexBuffer)
+	x1 = node.X() - (node.anchorX() * node.width())
+	x2 = x1 + node.width()
+	y1 = node.Y() - (node.anchorY() * node.height())
+	y2 = y1 + node.height()
 	vertices = [
-		node.X() - node.anchorX() + node.width(), node.Y() - node.anchorY() + node.height(), 0,
-		node.X() - node.anchorX(), node.Y() - node.anchorY() + node.height(), 0,
-		node.X() - node.anchorX() + node.width(), node.Y() - node.anchorY(), 0,
-		node.X() - node.anchorX(), node.Y() - node.anchorY(), 0
+		x2, y2, 0.0,
+		x1, y2, 0.0,
+		x2, y1, 0.0,
+		x1, y1, 0.0
 		]
 	context.bufferData(context.ARRAY_BUFFER, new Float32Array(vertices), context.STATIC_DRAW)
 	context.vertexAttribPointer(context.webglVertexAttrib, 3, context.FLOAT, false, 0, 0)
@@ -207,6 +202,8 @@ _xcSpriteDraw = (node) ->
 	context.activeTexture(context.TEXTURE0)
 	context.bindTexture(context.TEXTURE_2D, node.sprite.webglTexture)
 	context.uniform1i(context.webglSampler, 0)
+
+	context.vertexAttrib1f(context.webglAlphaAttrib, node.opacity())
 
 	context.drawArrays(context.TRIANGLE_STRIP, 0, 4)
 
@@ -348,22 +345,23 @@ itemLoaded = (item)->
 # all of the resources have been loaded.  It calls the user defined main
 # function and then starts an update loop.
 xc_init = ->
-	#find the canvas to attach to
 	window.canvas = document.getElementById('xcCanvas')
-	# and get its context.
 	window.context = canvas.getContext('experimental-webgl')
 
 	vshader = [
 		"uniform mat4 uProjectionMatrix;",
 		"attribute vec3 aVertexPosition;",
 		"attribute vec2 aTextureCoord;",
+		"attribute float aTextureAlpha;",
 		"",
 		"varying vec2 vTextureCoord;",
+		"varying float fTextureAlpha;",
 		"",
 		"void main(void) {",
 		"    gl_Position = uProjectionMatrix * vec4(aVertexPosition, 1.0);",
 		"",
 		"    vTextureCoord = aTextureCoord;",
+		"    fTextureAlpha = aTextureAlpha;",
 		"}"
 		].join("\n");
 
@@ -373,12 +371,13 @@ xc_init = ->
 		"#endif",
 		"",
 		"varying vec2 vTextureCoord;",
+		"varying float fTextureAlpha;",
 		"",
 		"uniform sampler2D uSampler;",
 		"",
 		"void main(void) {",
-		"    gl_FragColor = texture2D(uSampler, vTextureCoord);",
-		#"    gl_FragColor = vec4(1.0, 1.0, 0.0, 1.0);",
+		"    vec4 tex = texture2D(uSampler, vTextureCoord);",
+		"    gl_FragColor = vec4(tex.r, tex.g, tex.b, tex.a);",
 		"}"
 		].join("\n");
 
@@ -401,13 +400,15 @@ xc_init = ->
 	context.webglCoordAttrib = context.getAttribLocation(shaderProgram, "aTextureCoord")
 	context.enableVertexAttribArray(context.webglCoordAttrib)
 
+	context.webglAlphaAttrib = context.getAttribLocation(shaderProgram, "aTextureAlpha")
+
 	context.webglSampler = context.getUniformLocation(shaderProgram, "uSampler");
 
 	createProjection = (width, height) ->
 		left = 0
 		right = width
-		bottom = 0
-		top = height
+		bottom = height
+		top = 0
 		near = 1
 		far = -1
 
@@ -441,8 +442,6 @@ xc_init = ->
 	context.blendFunc(context.SRC_ALPHA, context.ONE_MINUS_SRC_ALPHA)
 	context.enable(context.BLEND)
 
-	#register the appropriate event handlers to get
-	#input events.
 	$(canvas).mousedown(handleMouseDown)
 	$(canvas).mousemove(handleMouseMoved)
 	$(document).mouseup(handleMouseUp)
@@ -462,16 +461,13 @@ xc_init = ->
 	wasPaused = false
 
 
-	#update is the updateDate loop that will be called 60 times a second.
 	update =  ->
 		context.clear(context.COLOR_BUFFER_BIT | context.DEPTH_BUFFER_BIT)
 
-		#calculate the time since the last call to update
 		currentTime = new Date().getTime()
 		delta = (currentTime - previousTime) / 1000
 		previousTime = currentTime
 
-		#get a reference to the current scene.
 		currentScene = xc.getCurrentScene()
 
 		#is the scene paused?
@@ -484,28 +480,15 @@ xc_init = ->
 			#anything else if the active scene is paused.
 			return
 		else
-		#otherwise, was the scene paused before this tick?
 			if wasPaused
-				#if so, delta is going to be a huge number.
-				#just make it 0 for this frame.
 				delta = 0
 				wasPaused = false
-			#now call the scene's tick function.  This will run scheduled
-			#functions and the tick function of all its children.
+
 			currentScene.tick(delta)
-			#then clear the canvas
-			#context.clearRect(0, 0, canvasWidth, canvasHeight)
-			#and, for ever child of the scene
 			for child in currentScene.children()
-				#is the child visible?
 				if child.visible()
-					#if so, save the context,
-					#context.save()
-					#draw the child,
 					child.draw()
-					#and then restore the context.
-					#context.restore()
-	#call the update function 60 times a second.
+
 	setInterval(update, 1000/60)
 
 
