@@ -41,7 +41,7 @@ run = (args) ->
   proc.stderr.on 'data', (buffer) -> puts buffer.toString()
   proc.stdout.on 'data', (buffer) -> puts buffer.toString()
   proc.on        'exit', (status) -> process.exit(1) if status != 0
-  
+
  runBuild = (args) ->
   proc =         spawn 'coffee', args
   proc.stderr.on 'data', (buffer) -> puts buffer.toString()
@@ -54,13 +54,13 @@ runTest = (args) ->
   proc.stderr.on 'data', (buffer) -> console.log buffer.toString()
   proc.stdout.on 'data', (buffer) -> CoffeeScript.run(buffer.toString(), {'test'})
   proc.on        'exit', (status) -> process.exit(1) if status != 0
-  
+
   return output
 
 compile = (fileName, outputDir)  ->
 	run(['-c', '--bare', '-o', outputDir, fileName])
 
-addLicense = (fileName) -> 
+addLicense = (fileName) ->
 	f = "###\n" + fs.readFileSync('./lib/license.txt').toString() + "\n###\n"
 	f += fs.readFileSync(fileName).toString()
 	fs.writeFileSync(fileName, f)
@@ -75,6 +75,7 @@ task 'build', 'build the xc library - final lib will be in lib/xc.js', (options)
 	invoke('concat')
 	compile('./src/compat/xc_canvas.coffee', './lib')
 	compile('./src/compat/xc_ios.coffee', './lib')
+	compile('./src/compat/xc_webgl.coffee', './lib')
 
 task 'concat', 'concat the xc library', (options) ->
 	args = ['./tools/coffeescript-concat.coffee', '-I', './src', '-I', './src/compat']
