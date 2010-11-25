@@ -128,7 +128,7 @@ _xcLoadImage = (imageName) ->
 
 			image.webglCoordBuffer = context.createBuffer()
 			context.bindBuffer(context.ARRAY_BUFFER, image.webglCoordBuffer)
-			context.bufferData(context.ARRAY_BUFFER, new Float32Array([0, 1, 1, 1, 0, 0, 1, 0]), context.STATIC_DRAW)
+			context.bufferData(context.ARRAY_BUFFER, new Float32Array([1, 1, 0, 1, 1, 0, 0, 0]), context.STATIC_DRAW)
 
 			return image
 
@@ -150,49 +150,37 @@ _xcLoadText = (node) -> null
 # coords, rotation, and opacity, and then draw it based
 # on the scale and anchor positions.  node is an XCSpriteNode
 _xcSpriteDraw = (node) ->
-	#rotate the context to the node's rotation
-	#since rotation is stored in degrees and the
-	# context wants radians, convert.
-	#TODO: move this into the node so the conversion
-	#only has to be done when it changes.
-	#context.rotate(node.rotation() * Math.PI / 180)
-
-	#set up the context's drawing opacity
-	#context.globalAlpha = node.opacity()
-
-	#now draw the sprite's image.
-	#the first 4 parameter values are the x,y with, height, to draw
-	#from the source image.  These will always be 0,0 and the image height
-	#The next 4 are the x, y, width, height to draw onto the canvas.
-	# since we've already moved the context to the node's x and y, the
-	#destination x and y here are simply a factor of the node's anchor.
-	# the destination width and height are the image width/height multiplied by
-	# the sprite's scale
-	###
-	context.drawImage(node.sprite,
-					0,
-					0,
-					node.sprite.width,
-					node.sprite.height,
-					0 - (node.width() * node.anchorX()),
-					0 - (node.height() * node.anchorY()),
-					node.sprite.width * node.scaleX(),
-					node.sprite.height * node.scaleY())
-	###
-
 	node.webglVertexBuffer = context.createBuffer() if !node.webglVertexBuffer?
 
 	context.bindBuffer(context.ARRAY_BUFFER, node.webglVertexBuffer)
-	x1 = node.X() - (node.anchorX() * node.width())
-	x2 = x1 + node.width()
-	y1 = node.Y() - (node.anchorY() * node.height())
-	y2 = y1 + node.height()
+
+	# Rotation
+	theta = node.rotation() * Math.PI / 180
+	cosTheta = Math.cos(theta)
+	sinTheta = Math.sin(theta)
+
+	local_x1 = node.anchorX() * -node.width()
+	local_x2 = local_x1 + node.width()
+	local_y1 = node.anchorY() * -node.height()
+	local_y2 = local_y1 + node.height()
+
+	x1 = node.X() + (local_x2 * cosTheta) - (local_y2 * sinTheta)
+	x2 = node.X() + (local_x1 * cosTheta) - (local_y2 * sinTheta)
+	x3 = node.X() + (local_x2 * cosTheta) - (local_y1 * sinTheta)
+	x4 = node.X() + (local_x1 * cosTheta) - (local_y1 * sinTheta)
+	y1 = node.Y() + (local_x2 * sinTheta) + (local_y2 * cosTheta)
+	y2 = node.Y() + (local_x1 * sinTheta) + (local_y2 * cosTheta)
+	y3 = node.Y() + (local_x2 * sinTheta) + (local_y1 * cosTheta)
+	y4 = node.Y() + (local_x1 * sinTheta) + (local_y1 * cosTheta)
+
+	# Vertice buffer
 	vertices = [
+		x1, y1, 0.0,
 		x2, y2, 0.0,
-		x1, y2, 0.0,
-		x2, y1, 0.0,
-		x1, y1, 0.0
+		x3, y3, 0.0,
+		x4, y4, 0.0
 		]
+
 	context.bufferData(context.ARRAY_BUFFER, new Float32Array(vertices), context.STATIC_DRAW)
 	context.vertexAttribPointer(context.webglVertexAttrib, 3, context.FLOAT, false, 0, 0)
 
@@ -361,7 +349,7 @@ xc_init = ->
 		"    gl_Position = uProjectionMatrix * vec4(aVertexPosition, 1.0);",
 		"",
 		"    vTextureCoord = aTextureCoord;",
-		"    fTextureAlpha = aTextureAlpha;",
+		#"    fTextureAlpha = aTextureAlpha;",
 		"}"
 		].join("\n");
 
