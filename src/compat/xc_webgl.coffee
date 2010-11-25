@@ -15,18 +15,14 @@ _xcNodeHeight = (node) ->
 	node._height * node._scaleY
 
 _xcTextNodeWidth = (node) ->
-	###context.save()
-	context.font = node.font
-	width = context.measureText(node._text).width
-	context.restore()
-	node.scaleX() * width###
+	textContext.font = node.font
+	width = textContext.measureText(node._text).width
+	node.scaleX() * width
 
 _xcTextNodeHeight = (node) ->
-	###context.save()
-	context.font = node.font
-	height = context.measureText('m').width
-	context.restore()
-	node.scaleY() * height###
+	textContext.font = node.font
+	height = textContext.measureText('m').width
+	node.scaleY() * height
 
 _xcNodeX = (node) ->
 	node._x
@@ -152,8 +148,6 @@ _xcLoadText = (node) -> null
 _xcSpriteDraw = (node) ->
 	node.webglVertexBuffer = context.createBuffer() if !node.webglVertexBuffer?
 
-	context.bindBuffer(context.ARRAY_BUFFER, node.webglVertexBuffer)
-
 	# Rotation
 	theta = node.rotation() * Math.PI / 180
 	cosTheta = Math.cos(theta)
@@ -180,7 +174,7 @@ _xcSpriteDraw = (node) ->
 		x3, y3, 0.0,
 		x4, y4, 0.0
 		]
-
+	context.bindBuffer(context.ARRAY_BUFFER, node.webglVertexBuffer)
 	context.bufferData(context.ARRAY_BUFFER, new Float32Array(vertices), context.STATIC_DRAW)
 	context.vertexAttribPointer(context.webglVertexAttrib, 3, context.FLOAT, false, 0, 0)
 
@@ -200,34 +194,62 @@ _xcSpriteDraw = (node) ->
 # the node's attributes and then fillText with the text.
 # node is an XCTextNode
 _xcTextDraw = (node) ->
-	###
-	#set the node font to a version that is readable by a canvas context
-	#TODO: move this out into the node so it's not done every frame.
+	textContext.save()
+
+	# Render to texture
 	node.font = node.fontSize + "pt " + node.fontName
-	#set the context's font to the correct font.
-	# context.font = node.font
+	textContext.font = node.font
 
-	# #set the context's fillstyle to rgb with the text node's color values.
-	# color = node.color()
-	# fillStyle = 'rgb(' + color.r + ',' + color.g + ',' + color.b + ')'
-	# context.fillStyle = fillStyle
+	color = node.color()
+	fillStyle = 'rgb(' + color.r + ',' + color.g + ',' + color.b + ')'
+	textContext.fillStyle = fillStyle
 
-	# #now move the context to the node's x and y
-	# context.translate(node.X(), node.Y())
+	textContext.translate(node.X(), node.Y())
+	textContext.rotate(node.rotation() * Math.PI / 180)
+	textContext.scale(node.scaleX(), node.scaleY())
+	textContext.globalAlpha = node.opacity()
 
-	# #rotate the context to the node's rotation,
-	# context.rotate(node.rotation() * Math.PI / 180)
-	# #scale the context to the node's scale,
-	# context.scale(node.scaleX(), node.scaleY())
-	# #and set the context's opacity.
-	# context.globalAlpha = node.opacity()
+	textContext.fillText(node.text(), 0 - (node.width() * node.anchorX()), 0 - (node.height() * node.anchorY()))
 
-	# #finally, draw the text.  since we've already moved the context
-	# #to the node's x and y coordinates, the x and y here are simply
-	# # based on the node's anchor points.
-	# context.fillText(node.text(), 0 - (node.width() * node.anchorX()),
-	# 								0 - (node.height() * node.anchorY()))
-	###
+	# Render in WebGL
+	node.webglVertexBuffer = context.createBuffer() if !node.webglVertexBuffer?
+
+	if !node.webglTexture?
+		node.webglTexture = context.createTexture()
+
+		node.webglCoordBuffer = context.createBuffer()
+		context.bindBuffer(context.ARRAY_BUFFER, node.webglCoordBuffer)
+		context.bufferData(context.ARRAY_BUFFER, new Float32Array([1, 1, 0, 1, 1, 0, 0, 0]), context.STATIC_DRAW)
+
+	context.bindTexture(context.TEXTURE_2D, node.webglTexture)
+	context.texImage2D(context.TEXTURE_2D, 0, context.RGBA, context.RGBA, context.UNSIGNED_BYTE, textCanvas)
+	context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MAG_FILTER, context.NEAREST)
+	context.texParameteri(context.TEXTURE_2D, context.TEXTURE_MIN_FILTER, context.NEAREST)
+	context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_S, context.CLAMP_TO_EDGE)
+	context.texParameteri(context.TEXTURE_2D, context.TEXTURE_WRAP_T, context.CLAMP_TO_EDGE)
+
+	# Vertice buffer
+	vertices = [
+		canvasWidth, canvasHeight, 0.0,
+		0.0, canvasHeight, 0.0,
+		canvasWidth, 0.0, 0.0,
+		0.0, 0.0, 0.0
+		]
+	context.bindBuffer(context.ARRAY_BUFFER, node.webglVertexBuffer)
+	context.bufferData(context.ARRAY_BUFFER, new Float32Array(vertices), context.STATIC_DRAW)
+	context.vertexAttribPointer(context.webglVertexAttrib, 3, context.FLOAT, false, 0, 0)
+
+	context.bindBuffer(context.ARRAY_BUFFER, node.webglCoordBuffer)
+	context.vertexAttribPointer(context.webglCoordAttrib, 2, context.FLOAT, false, 0, 0)
+
+	context.activeTexture(context.TEXTURE0)
+	context.uniform1i(context.webglSampler, 0)
+
+	context.vertexAttrib1f(context.webglAlphaAttrib, node.opacity())
+
+	context.drawArrays(context.TRIANGLE_STRIP, 0, 4)
+
+	textContext.restore()
 
 
 #to get mousedown events (which are converted to xc tapDown events),
@@ -335,6 +357,13 @@ itemLoaded = (item)->
 xc_init = ->
 	window.canvas = document.getElementById('xcCanvas')
 	window.context = canvas.getContext('experimental-webgl')
+
+	# WebGL doesn't do text natively
+	# We're going to create a 2D canvas and use it as a texture
+	window.textCanvas = document.createElement('canvas')
+	textCanvas.setAttribute('width', canvasWidth)
+	textCanvas.setAttribute('height', canvasHeight)
+	window.textContext = textCanvas.getContext('2d')
 
 	vshader = [
 		"uniform mat4 uProjectionMatrix;",
@@ -451,6 +480,7 @@ xc_init = ->
 
 	update =  ->
 		context.clear(context.COLOR_BUFFER_BIT | context.DEPTH_BUFFER_BIT)
+		textContext.clearRect(0, 0, canvasWidth, canvasHeight)
 
 		currentTime = new Date().getTime()
 		delta = (currentTime - previousTime) / 1000
