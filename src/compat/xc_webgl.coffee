@@ -347,9 +347,8 @@ xc_init = ->
 		"",
 		"void main(void) {",
 		"    gl_Position = uProjectionMatrix * vec4(aVertexPosition, 1.0);",
-		"",
+		"    fTextureAlpha = aTextureAlpha;",
 		"    vTextureCoord = aTextureCoord;",
-		#"    fTextureAlpha = aTextureAlpha;",
 		"}"
 		].join("\n");
 
@@ -365,7 +364,7 @@ xc_init = ->
 		"",
 		"void main(void) {",
 		"    vec4 tex = texture2D(uSampler, vTextureCoord);",
-		"    gl_FragColor = vec4(tex.r, tex.g, tex.b, tex.a);",
+		"    gl_FragColor = vec4(tex.r, tex.g, tex.b, tex.a * fTextureAlpha);",
 		"}"
 		].join("\n");
 
@@ -373,6 +372,7 @@ xc_init = ->
 		shader = context.createShader(type)
 		context.shaderSource(shader, source)
 		context.compileShader(shader)
+		alert(context.getShaderInfoLog(shader)) if !context.getShaderParameter(shader, context.COMPILE_STATUS)
 		shader
 
 	shaderProgram = context.createProgram()
